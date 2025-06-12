@@ -1,0 +1,110 @@
+version: "3.8"
+services:
+  llama_indexer:
+    tty: true
+    env_file: .env
+    build:
+      context: .
+      dockerfile: ./llamaindexer/Dockerfile
+    image: llama_indexer
+    container_name: llama_indexer
+    volumes:
+      - ./llamaindexer/code:/app
+      - ./data:/app/data
+    networks:
+      - net
+
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:0.5.23
+    container_name: chromadb
+    volumes:
+      - index_data:/chroma/.chroma/index
+    ports:
+      - 8000:8000
+    networks:
+      - net
+    
+  ollama:
+    build:
+      context: .
+      dockerfile: ./Ollama/Dockerfile
+    image: ollama
+    container_name: ollama
+    env_file: .env #いらないかも
+
+    ports:
+      - 11434:11434
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    networks:
+      - net
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    env_file: .env #いらないかも
+    environment:
+      - WEBUI_AUTH=False # ユーザーの認証関連 一旦OFFに
+      - OPENAI_API_KEY=0p3n-w3bu! # 多分いらない
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui:/app/backend/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: always
+    networks:
+      - net
+    depends_on:
+      - chromadb
+      - ollama
+
+  pipelines:
+      image: pipelines
+      build:
+        context: ./pipelines
+        dockerfile: Dockerfile
+      container_name: pipeline
+      volumes:
+        - pipelines:/app/pipelines
+      restart: always
+      deploy:
+        resources:
+          limits:
+            memory: 4g
+            cpus: '2.0'
+          reservations:
+            devices:
+              - capabilities: [gpu]
+      environment:
+        - PIPELINES_API_KEY=0p3n-w3bu!
+      extra_hosts: #デバッグ用
+      - "host.docker.internal:host-gateway"
+      networks:
+      - net
+      depends_on:
+      - open-webui
+
+
+
+volumes:
+  index_data:
+    driver: local
+  backups:
+    driver: local
+  ollama_data:
+    driver: local
+  open-webui:
+    driver: local
+  pipelines:
+    driver: local
+
+networks:
+  net:
+    driver: bridge
